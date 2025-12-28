@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Live Sailing Course</title>
+    
+    <!-- Leaflet Map CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <style>
+        body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #eee; }
+        #map { height: 100vh; width: 100vw; z-index: 1; display:none; }
+        
+        /* Login Screen */
+        #login-screen {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: #002b5c; color: white;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 3000;
+        }
+        .login-box { background: white; color: #333; padding: 20px; border-radius: 10px; width: 300px; text-align: center; }
+        
+        /* UI Panels */
+        .ui-panel {
+            position: absolute; background: rgba(255, 255, 255, 0.95);
+            padding: 15px; border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2); z-index: 1000;
+            max-width: 90%;
+        }
+        #settings-panel { top: 10px; left: 50%; transform: translateX(-50%); width: 320px; display: none; }
+        #status-bar { 
+            position: absolute; top: 0; left: 0; right: 0; 
+            background: rgba(0,0,0,0.8); color: white; padding: 5px; 
+            font-size: 12px; text-align: center; z-index: 1001;
+        }
+        #info-panel { bottom: 20px; left: 10px; right: 10px; text-align: center; display:none; }
+
+        /* Inputs */
+        input, button { width: 100%; padding: 12px; margin-bottom: 10px; border-radius: 5px; border: 1px solid #ccc; box-sizing: border-box; }
+        button { font-weight: bold; color: white; border: none; cursor: pointer; }
+        .btn-blue { background: #007bff; }
+        .btn-orange { background: #e65100; }
+        .btn-green { background: #28a745; }
+
+        /* Markers */
+        .mark-label { background: rgba(255,255,255,0.9); padding: 1px 4px; font-weight: bold; font-size: 11px; border-radius: 3px; border:1px solid #333; position:absolute; top:-15px; left:50%; transform:translateX(-50%); white-space:nowrap; }
+        .shape-cyl { width: 24px; height: 24px; background: #ff0055; border-radius: 4px; border: 2px solid white; box-shadow: 2px 2px 5px rgba(0,0,0,0.4); }
+        .shape-tri { width: 0; height: 0; border-left: 14px solid transparent; border-right: 14px solid transparent; border-bottom: 26px solid #ffd700; filter: drop-shadow(2px 2px 2px rgba(0,0,0,0.4)); }
+        .shape-boat { width: 0; height: 0; border-left: 10px solid transparent; border-right: 10px solid transparent; border-bottom: 25px solid #0044ff; }
+    </style>
+</head>
+<body>
+
+    <!-- 1. Connection Screen -->
+    <div id="login-screen">
+        <h2>⛵ Sailing Club Sync</h2>
+        <div class="login-box">
+            <p style="margin-top:0;">Enter a Unique Club ID<br><small>(e.g., "rcyc-race1")</small></p>
+            <input type="text" id="club-id" placeholder="Club Name / Room Code">
+            
+            <hr style="margin: 20px 0; border: 0; border-top: 1px solid #eee;">
+            
+            <button class="btn-blue" onclick="startApp('host')">I am Start Boat (Host)</button>
+            <button class="btn-orange" onclick="startApp('client')">I am Rescue Boat</button>
+            
+            <div style="margin-top:15px; font-size:12px; color:#666;">
+                <label><input type="checkbox" id="chk-dummy"> Enable Dummy GPS (Testing)</label>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. Main App -->
+    <div id="status-bar">Disconnected</div>
+    <div id="map"></div>
+
+    <!-- Start Boat Controls -->
+    <div id="settings-panel" class="ui-panel">
+        <h3>Course Controls</h3>
+        <label>Wind Heading (°)</label>
+        <input type="number" id="inp-wind" placeholder="0-360" onchange="broadcastCourse()">
+        <label>Distance (NM)</label>
+        <input type="number" id="inp-dist" value="1.0" step="0.1" onchange="broadcastCourse()">
+        <button class="btn-green" onclick="broadcastCourse()">UPDATE & BROADCAST</button>
+        <p style="font-size:11px; color:#666; text-align:center;">Changing these values updates rescue boats instantly.</p>
+    </div>
+
+    <!-- Info Panel -->
+    <div id="info-panel" class="ui-panel">
+        <div style="display:flex; justify-content:center; gap:15px;">
+            <span>COG: <strong id="val-cog">--</strong>°</span>
+            <span>SOG: <strong id="val-sog">--</strong> kn</span>
+        </div>
+        <div id="target-info" style="margin-top:5px; border-top:1px solid #ddd; padding-top:5px; color:#0056b3; font-weight:bold;">
+            Waiting for course...
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+
+    <script>
+        // --- VARIABLES ---
+        let map, boatMarker, courseLayer = L.layerGroup();
+        let role = ''; 
+        let peer, conn;
+        let connections = []; // For Host to keep track of rescue boats
+        let isDummy = false;
+        
+        let myPos = { lat: 50.8, lng: -1.2, heading: 0 };
+        let activeMarks = [];
+        let currentCourseData = { start: null, wind: 0, dist: 0 };
+
+        // --- 1. CONNECTION LOGIC (PEERJS) ---
+
+        function startApp(selectedRole) {
+            const clubId = document.getElementById('club-id').value.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+            if(clubId.length < 3) { alert("Please enter a longer Club ID (min 3 chars)"); return; }
+
+            role = selectedRole;
+            isDummy = document.getElementById('chk-dummy').checked;
+
+            document.getElementById('login-screen').style.display = 'none';
+            document.getElementById('map').style.display = 'block';
+            document.getElementById('info-panel').style.display = 'block';
+
+            initMap();
+            startGPS();
+
+            // Setup PeerJS
+            if (role === 'host') {
+                setupHost(clubId);
+                document.getElementById('settings-panel').style.display = 'block';
+            } else {
+                setupClient(clubId);
+            }
+        }
+
+        function setupHost(id) {
+            updateStatus("Initializing Host...", "orange");
+            // Host ID is exactly the Club ID
+            peer = new Peer(id);
+
+            peer.on('open', (id) => {
+                updateStatus(`You are the HOST (ID: ${id}). Waiting for boats...`, "green");
+            });
+
+            peer.on('connection', (c) => {
+                connections.push(c);
+                console.log("Rescue boat connected!");
+                // Immediately send them the current course if it exists
+                if(currentCourseData.start) {
+                    setTimeout(() => {
+                        c.send(currentCourseData);
+                    }, 500);
+                }
+            });
+
+            peer.on('error', (err) => {
+                if(err.type === 'unavailable-id') alert("ID taken! Is another Start Boat already running with this ID?");
+                else updateStatus("Connection Error: " + err.type, "red");
+            });
+        }
+
+        function setupClient(hostId) {
+            updateStatus("Looking for Start Boat...", "orange");
+            // Client gets a random ID
+            peer = new Peer();
+
+            peer.on('open', () => {
+                // Connect to the Host
+                conn = peer.connect(hostId);
+
+                conn.on('open', () => {
+                    updateStatus("Connected to Start Boat!", "green");
+                });
+
+                conn.on('data', (data) => {
+                    console.log("Received Course Data", data);
+                    currentCourseData = data;
+                    renderCourse();
+                });
+
+                conn.on('close', () => updateStatus("Lost connection to Start Boat", "red"));
+            });
+            
+            peer.on('error', (err) => updateStatus("Error: Could not find Start Boat. Check ID.", "red"));
+        }
+
+        function broadcastCourse() {
+            // 1. Get Inputs
+            const w = parseFloat(document.getElementById('inp-wind').value);
+            const d = parseFloat(document.getElementById('inp-dist').value);
+            
+            // 2. Update Local State
+            currentCourseData = {
+                start: { lat: myPos.lat, lng: myPos.lng }, // Start line is where the boat IS right now
+                wind: w,
+                dist: d
+            };
+
+            // 3. Render Locally
+            renderCourse();
+
+            // 4. Send to all connected boats
+            connections.forEach(c => {
+                if(c.open) c.send(currentCourseData);
+            });
+        }
+
+        function updateStatus(msg, color) {
+            const el = document.getElementById('status-bar');
+            el.innerText = msg;
+            el.style.backgroundColor = color === "green" ? "rgba(40, 167, 69, 0.9)" : 
+                                       color === "red" ? "rgba(220, 53, 69, 0.9)" : "rgba(255, 193, 7, 0.9)";
+            el.style.color = color === "orange" ? "black" : "white";
+        }
+
+
+        // --- 2. MAP & GPS LOGIC ---
+
+        function initMap() {
+            map = L.map('map').setView([50.8, -1.2], 13);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+            courseLayer.addTo(map);
+
+            if(isDummy) {
+                map.on('click', (e) => {
+                    updateGPS(e.latlng.lat, e.latlng.lng, 0, 0);
+                });
+            }
+        }
+
+        function startGPS() {
+            if (isDummy) {
+                // Default Start Position
+                updateGPS(50.8, -1.2, 0, 0);
+                return;
+            }
+
+            if ("geolocation" in navigator) {
+                navigator.geolocation.watchPosition(
+                    (p) => updateGPS(p.coords.latitude, p.coords.longitude, p.coords.heading, p.coords.speed),
+                    (e) => console.log(e),
+                    { enableHighAccuracy: true, maximumAge: 0 }
+                );
+            }
+        }
+
+        function updateGPS(lat, lng, hdg, spd) {
+            myPos = { lat, lng, heading: hdg || 0 };
+            
+            // Update UI
+            document.getElementById('val-cog').innerText = Math.round(myPos.heading);
+            document.getElementById('val-sog').innerText = spd ? (spd * 1.94).toFixed(1) : "0.0";
+
+            // Marker
+            if (!boatMarker) {
+                boatMarker = L.marker([lat, lng], {
+                    icon: L.divIcon({ className: 'boat-icon', html: `<div class="shape-boat" style="transform:rotate(0deg);"></div>`, iconSize: [20, 25], iconAnchor: [10, 12] })
+                }).addTo(map);
+                map.setView([lat, lng], 14);
+            } else {
+                boatMarker.setLatLng([lat, lng]);
+                boatMarker.getElement().innerHTML = `<div class="shape-boat" style="transform:rotate(${myPos.heading}deg);"></div>`;
+            }
+
+            findNearestMark();
+        }
+
+        // --- 3. GEOMETRY ENGINE (TRAPEZOID) ---
+
+        const R_NM = 3440.065;
+        function toRad(d) { return d * Math.PI / 180; }
+        function toDeg(r) { return r * 180 / Math.PI; }
+        function dest(lat, lng, brng, dist) {
+            let lat1 = toRad(lat), lon1 = toRad(lng), b = toRad(brng), d = dist/R_NM;
+            let lat2 = Math.asin(Math.sin(lat1)*Math.cos(d) + Math.cos(lat1)*Math.sin(d)*Math.cos(b));
+            let lon2 = lon1 + Math.atan2(Math.sin(b)*Math.sin(d)*Math.cos(lat1), Math.cos(d)-Math.sin(lat1)*Math.sin(lat2));
+            return { lat: toDeg(lat2), lng: toDeg(lon2) };
+        }
+
+        function renderCourse() {
+            if(!currentCourseData.start) return;
+            courseLayer.clearLayers();
+
+            const s = currentCourseData.start;
+            const w = currentCourseData.wind;
+            const d = currentCourseData.dist;
+
+            // Geometry Calculations
+            const m1 = dest(s.lat, s.lng, w, d);
+            
+            // Reach (Port turn, 120 deg left)
+            const reachAngle = (w - 115 + 360) % 360; 
+            const reachLen = d * 0.5;
+            const m2 = dest(m1.lat, m1.lng, reachAngle, reachLen);
+
+            // Gate Center (Downwind from M2)
+            const gateCenter = dest(m2.lat, m2.lng, (w + 180) % 360, d);
+            const p3p = dest(gateCenter.lat, gateCenter.lng, (w - 90 + 360)%360, 0.02);
+            const p3s = dest(gateCenter.lat, gateCenter.lng, (w + 90 + 360)%360, 0.02);
+
+            // Inner Loop
+            const m4 = dest(gateCenter.lat, gateCenter.lng, w, d * 0.66);
+            const m5 = dest(m4.lat, m4.lng, reachAngle, reachLen * 0.85);
+
+            // Line Logic
+            const pin = dest(s.lat, s.lng, (w - 90 + 360)%360, 0.1);
+            const finish = dest(s.lat, s.lng, (w + 90 + 360)%360, 0.1);
+
+            activeMarks = [
+                {id: "1", pos: m1, type: "cyl"},
+                {id: "2", pos: m2, type: "cyl"},
+                {id: "3S", pos: p3s, type: "cyl"},
+                {id: "3P", pos: p3p, type: "cyl"},
+                {id: "4", pos: m4, type: "tri"},
+                {id: "5", pos: m5, type: "tri"},
+                {id: "S", pos: s, type: "boat"},
+                {id: "P", pos: pin, type: "pin"},
+                {id: "F", pos: finish, type: "flag"}
+            ];
+
+            // Drawing
+            activeMarks.forEach(m => {
+                let html = "";
+                if(m.type === 'cyl') html = `<div class="shape-cyl"></div><div class="mark-label">${m.id}</div>`;
+                if(m.type === 'tri') html = `<div class="shape-tri"></div><div class="mark-label">${m.id}</div>`;
+                if(m.type === 'pin') html = `<div style="background:orange;width:15px;height:15px;border-radius:50%;border:1px solid black;"></div><div class="mark-label">Pin</div>`;
+                if(m.type === 'flag') html = `<div style="background:blue;width:10px;height:20px;"></div><div class="mark-label">Fin</div>`;
+                if(m.type === 'boat') return; 
+
+                L.marker([m.pos.lat, m.pos.lng], {
+                    icon: L.divIcon({ className: 'custom-icon', html: html, iconSize:[30,30], iconAnchor:[15,15] })
+                }).addTo(courseLayer);
+            });
+
+            // Lines
+            L.polyline([[s.lat, s.lng], [m1.lat, m1.lng]], {color: 'gray', dashArray:'5,5', weight:1}).addTo(courseLayer);
+            L.polyline([[m1.lat, m1.lng], [m2.lat, m2.lng], [p3p.lat, p3p.lng]], {color: '#ff0055', weight:2}).addTo(courseLayer);
+            L.polyline([[m4.lat, m4.lng], [m5.lat, m5.lng]], {color: '#ffd700', weight:2}).addTo(courseLayer);
+
+            // If we are rescue boat, auto-zoom to course
+            if(role === 'client') {
+                 let bounds = L.latLngBounds(activeMarks.map(m => [m.pos.lat, m.pos.lng]));
+                 map.fitBounds(bounds, {padding:[50,50]});
+            }
+        }
+
+        function findNearestMark() {
+            if(activeMarks.length === 0) return;
+            let nearest = null, minD = Infinity;
+            activeMarks.forEach(m => {
+                let d = map.distance([myPos.lat, myPos.lng], [m.pos.lat, m.pos.lng]);
+                if(d < minD) { minD = d; nearest = m; }
+            });
+            document.getElementById('target-info').innerHTML = `Nearest: <strong style="font-size:1.2em">${nearest.id}</strong> <br>Range: <strong>${Math.round(minD)}m</strong>`;
+        }
+    </script>
+</body>
+</html>
