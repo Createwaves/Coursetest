@@ -39,6 +39,11 @@
         .btn-orange { background: #e65100; }
         .btn-green { background: #28a745; }
 
+        /* INDICATORS */
+        .live-dot { height: 10px; width: 10px; background-color: #bbb; border-radius: 50%; display: inline-block; margin-right: 5px; }
+        .live-active { background-color: #28a745; box-shadow: 0 0 5px #28a745; animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+
         /* MARKERS */
         .mark-label { background: rgba(255,255,255,0.9); padding: 1px 5px; font-weight: bold; font-size: 11px; border:1px solid #333; border-radius:3px; position:absolute; top:-16px; left:50%; transform:translateX(-50%); white-space:nowrap; }
         .shape-cyl { width: 20px; height: 20px; background: #ff0055; border-radius: 50%; border: 2px solid white; box-shadow: 2px 2px 4px rgba(0,0,0,0.3); }
@@ -55,7 +60,7 @@
         <h2 style="margin-top:0;">⛵ Sailing Sheet Sync</h2>
         <div class="box">
             
-            <!-- HIDDEN URL INPUT (Pre-filled) -->
+            <!-- HIDDEN URL INPUT -->
             <input type="hidden" id="script-url" value="https://script.google.com/macros/s/AKfycbymUYipd9QbsR1z9FZFW6H-0k1_Sous0P07Rk_SUSEr8Ieq2rOVQbFQjXIWO10n5R1Geg/exec">
 
             <p style="margin-bottom:5px; font-weight:bold; color:#555;">Enter Course Name</p>
@@ -96,9 +101,12 @@
 
     <!-- 4. RESCUE CONTROLS -->
     <div id="rescue-panel" class="ui-panel">
-        <strong id="display-name" style="color:#007bff; font-size:14px;"></strong>
-        <button id="btn-load" class="btn-orange" onclick="loadFromCloud()" style="margin-top:10px;">🔄 Update from Cloud</button>
-        <div id="load-status" style="font-size:11px; text-align:center; color:#666;">Click to load</div>
+        <div style="display:flex; align-items:center; justify-content:center; margin-bottom:5px;">
+            <span id="live-dot" class="live-dot"></span>
+            <strong id="display-name" style="color:#007bff; font-size:14px;"></strong>
+        </div>
+        <div id="load-status" style="font-size:12px; color:#555; margin-bottom:10px;">Waiting for sync...</div>
+        <button id="btn-load" class="btn-orange" onclick="loadFromCloud(false)" style="font-size:12px; padding:8px;">Force Update</button>
     </div>
 
     <!-- 5. INFO PANEL -->
@@ -109,18 +117,20 @@
 
     <script>
         // --- STATE ---
-        let map, boatMarker, layer = L.layerGroup();
+        let map, boatMarker, headingLine, layer = L.layerGroup();
         let isPro = false, isDummy = false;
         let scriptUrl = "";
         let courseName = "";
         let myPos = { lat: 50.8, lng: -1.2, heading: 0 };
         let activeMarks = [];
+        let lastTimestamp = "";
+        let syncInterval = null;
 
         function startApp(role) {
             scriptUrl = document.getElementById('script-url').value.trim();
             courseName = document.getElementById('course-name').value.trim();
             
-            if(!scriptUrl) return alert("Error: Script URL is missing in code.");
+            if(!scriptUrl) return alert("Error: Script URL is missing.");
             if(courseName.length < 2) return alert("Please enter a Course Name (e.g. race1)");
 
             isPro = (role === 'PRO');
@@ -135,7 +145,8 @@
             } else {
                 document.getElementById('rescue-panel').style.display = 'block';
                 document.getElementById('display-name').innerText = "Course: " + courseName;
-                loadFromCloud(); // Auto load first time
+                loadFromCloud(false);
+                syncInterval = setInterval(() => { loadFromCloud(true); }, 6000);
             }
 
             initMap();
@@ -153,24 +164,20 @@
             const d = parseFloat(document.getElementById('inp-dist').value);
             if(!w || !d) return alert("Enter Wind and Distance");
 
-            // Prepare Data
             const courseData = {
                 start: { lat: myPos.lat, lng: myPos.lng },
-                wind: w, dist: d
+                wind: w, dist: d,
+                ts: new Date().toISOString()
             };
 
-            // UI Feedback
             btn.disabled = true; btn.innerText = "Saving...";
             
             try {
-                // Construct URL with parameters
                 const dataStr = encodeURIComponent(JSON.stringify(courseData));
                 const url = `${scriptUrl}?action=save&code=${courseName}&data=${dataStr}`;
-                
                 await fetch(url);
-                
-                status.innerText = "Saved at " + new Date().toLocaleTimeString();
-                render(courseData); // Render locally
+                status.innerText = "Last Saved: " + new Date().toLocaleTimeString();
+                render(courseData); 
             } catch(e) {
                 alert("Error saving: " + e);
                 status.innerText = "Save Failed";
@@ -179,11 +186,12 @@
             btn.disabled = false; btn.innerText = "☁️ Save to Cloud";
         }
 
-        async function loadFromCloud() {
+        async function loadFromCloud(isSilent) {
             const btn = document.getElementById('btn-load');
             const status = document.getElementById('load-status');
+            const dot = document.getElementById('live-dot');
             
-            btn.disabled = true; btn.innerText = "Loading...";
+            if(!isSilent) { btn.disabled = true; btn.innerText = "Checking..."; }
 
             try {
                 const url = `${scriptUrl}?action=read&code=${courseName}&t=${Date.now()}`;
@@ -191,20 +199,25 @@
                 const data = await response.json();
                 
                 if(data && data.start) {
-                    render(data);
-                    status.innerText = "Updated: " + new Date().toLocaleTimeString();
+                    if (data.ts !== lastTimestamp) {
+                        lastTimestamp = data.ts;
+                        render(data);
+                    }
+                    status.innerText = "Last Sync: " + new Date().toLocaleTimeString();
+                    dot.classList.add('live-active');
                 } else {
-                    status.innerText = "No data found for '" + courseName + "'";
+                    if(!isSilent) status.innerText = "No course found.";
+                    dot.classList.remove('live-active');
                 }
             } catch(e) {
-                status.innerText = "Connection Error";
-                console.error(e);
+                if(!isSilent) status.innerText = "Connection Error";
+                dot.classList.remove('live-active');
             }
 
-            btn.disabled = false; btn.innerText = "🔄 Update from Cloud";
+            if(!isSilent) { btn.disabled = false; btn.innerText = "Force Update"; }
         }
 
-        // --- MAPPING & MATH ---
+        // --- MAPPING & GPS ---
 
         function initMap() {
             map = L.map('map').setView([50.8, -1.2], 13);
@@ -231,6 +244,7 @@
             document.getElementById('val-cog').innerText = Math.round(myPos.heading);
             document.getElementById('val-sog').innerText = spd ? (spd * 1.94).toFixed(1) : "0.0";
 
+            // 1. UPDATE BOAT ICON
             if(!boatMarker) {
                 boatMarker = L.marker([lat, lng], {
                     icon: L.divIcon({ className: 'b', html: `<div class="shape-boat" style="transform:rotate(0deg);"></div>`, iconSize: [20, 25], iconAnchor: [10, 12] })
@@ -240,9 +254,25 @@
                 boatMarker.setLatLng([lat, lng]);
                 boatMarker.getElement().innerHTML = `<div class="shape-boat" style="transform:rotate(${myPos.heading}deg);"></div>`;
             }
+
+            // 2. UPDATE HEADING LINE (NEW!)
+            // Calculate a point 50 Nautical Miles ahead to act as an "infinite" line
+            const lineTip = dest(lat, lng, myPos.heading, 50); 
+            
+            if (!headingLine) {
+                headingLine = L.polyline([[lat, lng], [lineTip.lat, lineTip.lng]], {
+                    color: 'red',
+                    weight: 1,
+                    dashArray: '5, 10' // Dashed line styling
+                }).addTo(map);
+            } else {
+                headingLine.setLatLngs([[lat, lng], [lineTip.lat, lineTip.lng]]);
+            }
+
             findNearest();
         }
 
+        // --- MATH ---
         function dest(lat, lng, b, d) {
             const R = 3440.065, rLat = lat*Math.PI/180, rLng = lng*Math.PI/180, rB = b*Math.PI/180, rD = d/R;
             const lat2 = Math.asin(Math.sin(rLat)*Math.cos(rD) + Math.cos(rLat)*Math.sin(rD)*Math.cos(rB));
@@ -283,7 +313,6 @@
             L.polyline([m1, m2, p3p], {color:'#ff0055', weight:2}).addTo(layer);
             L.polyline([m4, m5], {color:'#ffd700', weight:2}).addTo(layer);
 
-            // Fit bounds
             map.fitBounds(activeMarks.map(m=>[m.p.lat, m.p.lng]), {padding:[50,50]});
         }
 
