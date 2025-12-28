@@ -3,213 +3,254 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Live Sailing Course</title>
+    <title>Sailing Course Pro</title>
+    
+    <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
     <style>
-        body { margin: 0; padding: 0; font-family: sans-serif; background: #eee; }
+        body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #f0f2f5; }
         #map { height: 100vh; width: 100vw; z-index: 1; display:none; }
         
-        /* Login Overlay */
+        /* LOGIN SCREEN */
         #login-screen {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: #002b5c; color: white;
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            background: linear-gradient(135deg, #002b5c 0%, #00509d 100%);
+            color: white; display: flex; flex-direction: column; align-items: center; justify-content: center;
             z-index: 3000;
         }
-        .login-box { background: white; color: #333; padding: 20px; border-radius: 10px; width: 90%; max-width: 350px; text-align: center; }
+        .login-box { background: white; color: #333; padding: 25px; border-radius: 12px; width: 85%; max-width: 320px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }
         
-        /* UI Panels */
+        /* CONTROLS */
         .ui-panel {
-            position: absolute; background: rgba(255, 255, 255, 0.95);
+            position: absolute; background: rgba(255, 255, 255, 0.96);
             padding: 15px; border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.2); z-index: 1000;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.15); z-index: 1000;
             width: 90%; max-width: 350px; left: 50%; transform: translateX(-50%);
         }
-        #settings-panel { top: 40px; display: none; }
+        #settings-panel { top: 50px; display: none; }
+        
+        /* HEADER STATUS */
         #status-bar { 
-            position: absolute; top: 0; left: 0; right: 0; height: 30px;
-            background: #333; color: white; line-height: 30px;
-            font-size: 12px; text-align: center; z-index: 1001;
+            position: absolute; top: 0; left: 0; right: 0; height: 35px;
+            background: #333; color: white; line-height: 35px;
+            font-size: 13px; text-align: center; z-index: 1001; font-weight: bold;
+            transition: background 0.3s;
         }
+
+        /* INFO FOOTER */
         #info-panel { bottom: 20px; text-align: center; display:none; }
 
-        input, button { width: 100%; padding: 12px; margin-bottom: 10px; border-radius: 5px; border: 1px solid #ccc; box-sizing: border-box; }
-        button { font-weight: bold; color: white; border: none; cursor: pointer; }
+        /* INPUTS */
+        input, button { width: 100%; padding: 12px; margin-bottom: 12px; border-radius: 6px; border: 1px solid #ddd; box-sizing: border-box; font-size: 16px; }
+        button { font-weight: bold; color: white; border: none; cursor: pointer; transition: opacity 0.2s; }
+        button:active { opacity: 0.8; }
         .btn-blue { background: #007bff; }
         .btn-orange { background: #e65100; }
         .btn-green { background: #28a745; }
 
-        /* Icons */
-        .mark-label { background: rgba(255,255,255,0.9); padding: 1px 4px; font-weight: bold; font-size: 11px; border:1px solid #333; position:absolute; top:-15px; left:50%; transform:translateX(-50%); white-space:nowrap; }
-        .shape-cyl { width: 20px; height: 20px; background: #ff0055; border-radius: 50%; border: 2px solid white; box-shadow: 2px 2px 4px rgba(0,0,0,0.4); }
-        .shape-tri { width: 0; height: 0; border-left: 12px solid transparent; border-right: 12px solid transparent; border-bottom: 24px solid #ffd700; filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.4)); }
+        /* MAP MARKERS */
+        .mark-label { background: rgba(255,255,255,0.9); padding: 1px 5px; font-weight: bold; font-size: 11px; border:1px solid #333; border-radius:3px; position:absolute; top:-16px; left:50%; transform:translateX(-50%); white-space:nowrap; }
+        .shape-cyl { width: 20px; height: 20px; background: #ff0055; border-radius: 50%; border: 2px solid white; box-shadow: 2px 2px 4px rgba(0,0,0,0.3); }
+        .shape-tri { width: 0; height: 0; border-left: 12px solid transparent; border-right: 12px solid transparent; border-bottom: 24px solid #ffd700; filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.3)); }
         .shape-boat { width: 0; height: 0; border-left: 10px solid transparent; border-right: 10px solid transparent; border-bottom: 25px solid #0044ff; }
+        .shape-pin { width: 16px; height: 16px; background: orange; border-radius: 50%; border: 2px solid black; }
+        .shape-flag { width: 10px; height: 20px; background: blue; border: 1px solid white; }
     </style>
 </head>
 <body>
 
-    <div id="status-bar">Waiting for user...</div>
+    <div id="status-bar">Not Connected</div>
 
+    <!-- LOGIN SCREEN -->
     <div id="login-screen">
-        <h2>⛵ Sailing Sync</h2>
+        <h2 style="margin-top:0;">⛵ Sailing Course Pro</h2>
         <div class="login-box">
-            <p>Enter Club ID (Unique Password)</p>
-            <input type="text" id="club-id" placeholder="e.g. rcyc2024">
-            <button class="btn-blue" onclick="startApp('host')">Start Boat (Host)</button>
-            <button class="btn-orange" onclick="startApp('client')">Rescue Boat (Join)</button>
-            <div style="margin-top:10px; font-size:12px;">
-                <label><input type="checkbox" id="chk-dummy"> Enable Dummy GPS</label>
+            <p style="margin:5px 0 15px; color:#666;">Enter a unique Club/Race Code</p>
+            <input type="text" id="club-id" placeholder="e.g. race1">
+            <button class="btn-blue" onclick="joinSession('PRO')">I am Start Boat (PRO)</button>
+            <button class="btn-orange" onclick="joinSession('RESCUE')">I am Rescue Boat</button>
+            
+            <div style="margin-top:15px; font-size:13px; text-align:left; background:#f9f9f9; padding:10px; border-radius:6px;">
+                <label style="display:flex; align-items:center;">
+                    <input type="checkbox" id="chk-dummy" style="width:auto; margin:0 10px 0 0;"> 
+                    Enable Dummy GPS (Tap map)
+                </label>
             </div>
         </div>
     </div>
 
+    <!-- MAP AREA -->
     <div id="map"></div>
 
+    <!-- PRO SETTINGS (Start Boat Only) -->
     <div id="settings-panel" class="ui-panel">
-        <h3>Course Settings</h3>
-        <label>Wind Heading (°)</label>
-        <input type="number" id="inp-wind" placeholder="0-360" oninput="broadcastCourse()">
-        <label>Distance (NM)</label>
-        <input type="number" id="inp-dist" value="1.0" step="0.1" oninput="broadcastCourse()">
-        <button class="btn-green" onclick="broadcastCourse()">Force Update</button>
+        <h3 style="margin:0 0 10px;">Set Course</h3>
+        <div style="display:flex; gap:10px;">
+            <div style="flex:1">
+                <label style="font-size:12px;">Wind (°)</label>
+                <input type="number" id="inp-wind" placeholder="Heading">
+            </div>
+            <div style="flex:1">
+                <label style="font-size:12px;">Len (NM)</label>
+                <input type="number" id="inp-dist" value="1.0" step="0.1">
+            </div>
+        </div>
+        <button class="btn-green" onclick="broadcastCourse()">SET & BROADCAST</button>
+        <p style="font-size:11px; color:#666; margin:0; text-align:center;">Updates all rescue boats instantly</p>
     </div>
 
+    <!-- DATA PANEL (Everyone) -->
     <div id="info-panel" class="ui-panel">
-        <div id="target-info" style="font-size: 18px; color:#0056b3; font-weight:bold;">
-            Waiting for course...
+        <div id="target-info" style="font-size: 18px; color:#0056b3; font-weight:bold; margin-bottom:5px;">
+            Waiting for Course Data...
         </div>
-        <div style="font-size:12px; margin-top:5px;">
-            COG: <span id="val-cog">--</span>° | SOG: <span id="val-sog">--</span> kn
+        <div style="font-size:13px; display:flex; justify-content:center; gap:15px; color:#444;">
+            <span>COG: <strong id="val-cog">--</strong>°</span>
+            <span>SOG: <strong id="val-sog">--</strong> kn</span>
         </div>
     </div>
 
+    <!-- LIBRARIES -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
 
     <script>
+        // --- GLOBAL STATE ---
         let map, boatMarker, courseLayer = L.layerGroup();
-        let peer, conn, connections = [];
-        let myPos = { lat: 50.8, lng: -1.2, heading: 0 }; // Default
-        let currentCourse = { start: null, wind: 0, dist: 0 };
-        let isHost = false;
+        let client; // MQTT Client
+        let topic = ""; 
+        let isPro = false;
         let isDummy = false;
+        
+        // Boat State
+        let myPos = { lat: 50.8, lng: -1.2, heading: 0 };
+        // Course State
+        let courseData = { start: null, wind: 0, dist: 0, timestamp: 0 };
+        let activeMarks = [];
 
-        // Configuration to help phones find computers over internet (STUN)
-        const peerConfig = {
-            config: {
-                'iceServers': [
-                    { url: 'stun:stun.l.google.com:19302' },
-                    { url: 'stun:stun1.l.google.com:19302' }
-                ]
-            }
-        };
+        // --- 1. NETWORK LOGIC (MQTT) ---
+        function joinSession(role) {
+            const code = document.getElementById('club-id').value.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+            if(code.length < 3) return alert("Please enter a longer Code (min 3 chars)");
 
-        function startApp(role) {
-            const id = document.getElementById('club-id').value.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-            if(id.length < 3) return alert("Enter a longer ID");
-
-            isHost = (role === 'host');
+            isPro = (role === 'PRO');
             isDummy = document.getElementById('chk-dummy').checked;
+            topic = `sailing_app_v1/${code}`; // Unique channel
 
+            // UI Switch
             document.getElementById('login-screen').style.display = 'none';
             document.getElementById('map').style.display = 'block';
             document.getElementById('info-panel').style.display = 'block';
-            if(isHost) document.getElementById('settings-panel').style.display = 'block';
+            if(isPro) document.getElementById('settings-panel').style.display = 'block';
 
             initMap();
             startGPS();
-            initNetwork(id);
+            connectMQTT();
         }
 
-        // --- NETWORKING ---
-        function initNetwork(id) {
-            setStatus("Connecting to network...", "orange");
+        function connectMQTT() {
+            updateStatus("Connecting to Cloud...", "orange");
+            
+            // Connect to a public Secure WebSocket Broker (Works on HTTPS/GitHub Pages)
+            client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
-            if(isHost) {
-                // Host opens the room with the specific ID
-                peer = new Peer(id, peerConfig);
-                peer.on('open', (pid) => setStatus(`HOSTING: ${pid} - Waiting for boats...`, "green"));
-                peer.on('connection', (c) => {
-                    connections.push(c);
-                    console.log("New connection");
-                    if(currentCourse.start) setTimeout(() => c.send(currentCourse), 1000);
-                });
-                peer.on('error', (err) => alert("ID Taken! Someone else is hosting with this ID."));
-            } else {
-                // Client joins the ID
-                peer = new Peer(null, peerConfig); // Random ID for client
-                peer.on('open', () => {
-                    setStatus("Looking for Host...", "orange");
-                    conn = peer.connect(id);
-                    
-                    conn.on('open', () => setStatus("CONNECTED to Start Boat", "green"));
-                    conn.on('data', (data) => {
-                        currentCourse = data;
-                        renderCourse();
-                    });
-                    conn.on('close', () => setStatus("Disconnected", "red"));
-                    
-                    // Keep-alive fix for some mobile browsers
-                    setInterval(() => { if(conn.open) conn.send('ping'); }, 5000);
-                });
-                peer.on('error', () => setStatus("Could not find Host. Check ID.", "red"));
-            }
-        }
+            client.on('connect', () => {
+                updateStatus(isPro ? "Connected: You are PRO" : "Connected: Waiting for Course", "green");
+                // Everyone subscribes to the topic to hear updates
+                client.subscribe(topic);
+            });
 
-        function setStatus(msg, color) {
-            const el = document.getElementById('status-bar');
-            el.innerText = msg;
-            el.style.backgroundColor = color === 'green' ? '#28a745' : color === 'red' ? '#dc3545' : '#ffc107';
-            el.style.color = color === 'orange' ? 'black' : 'white';
+            client.on('message', (t, message) => {
+                // If we receive data
+                try {
+                    const remoteData = JSON.parse(message.toString());
+                    
+                    // Only update if the data is newer than what we have
+                    if(remoteData.timestamp > courseData.timestamp) {
+                        courseData = remoteData;
+                        renderCourse(); // Update Map
+                        
+                        if(!isPro) {
+                            updateStatus("Course Updated!", "green");
+                            setTimeout(() => updateStatus("Connected", "green"), 2000);
+                        }
+                    }
+                } catch(e) { console.error("Data error", e); }
+            });
+
+            client.on('error', (err) => {
+                console.error(err);
+                updateStatus("Connection Error", "red");
+            });
         }
 
         function broadcastCourse() {
-            if(!isHost) return;
+            if(!isPro) return;
+
             const w = parseFloat(document.getElementById('inp-wind').value);
             const d = parseFloat(document.getElementById('inp-dist').value);
+
+            if(isNaN(w) || isNaN(d)) return alert("Enter valid Wind and Distance");
+
+            // Create Payload
+            const payload = {
+                start: { lat: myPos.lat, lng: myPos.lng }, // Start is CURRENT boat position
+                wind: w,
+                dist: d,
+                timestamp: Date.now()
+            };
+
+            // Send to Cloud
+            client.publish(topic, JSON.stringify(payload), { retain: true }); // Retain=true means new boats get data immediately on join
             
-            // Set start point to where the boat IS right now (or dummy pos)
-            currentCourse = { start: { lat: myPos.lat, lng: myPos.lng }, wind: w, dist: d };
-            
-            renderCourse(); // Update local map
-            
-            // Send to everyone
-            connections.forEach(c => { if(c.open) c.send(currentCourse); });
+            // Update local view immediately
+            courseData = payload;
+            renderCourse();
         }
 
-        // --- MAP & GPS ---
+        function updateStatus(msg, color) {
+            const el = document.getElementById('status-bar');
+            el.innerText = msg;
+            el.style.backgroundColor = color === "green" ? "#28a745" : color === "red" ? "#dc3545" : "#ffc107";
+            el.style.color = color === "orange" ? "black" : "white";
+        }
+
+        // --- 2. MAP & GPS ---
         function initMap() {
             map = L.map('map').setView([50.8, -1.2], 13);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
             courseLayer.addTo(map);
 
             if(isDummy) {
-                map.on('click', e => updatePos(e.latlng.lat, e.latlng.lng, 0, 0));
-                setTimeout(() => updatePos(50.8, -1.2, 0, 0), 500);
+                map.on('click', e => updateGPS(e.latlng.lat, e.latlng.lng, 0, 0));
+                // Set initial dummy pos
+                setTimeout(() => updateGPS(50.8, -1.2, 0, 0), 500);
             }
         }
 
         function startGPS() {
             if(isDummy) return;
-            if("geolocation" in navigator) {
+            if ("geolocation" in navigator) {
                 navigator.geolocation.watchPosition(
-                    p => updatePos(p.coords.latitude, p.coords.longitude, p.coords.heading, p.coords.speed),
-                    e => console.log(e), 
+                    p => updateGPS(p.coords.latitude, p.coords.longitude, p.coords.heading, p.coords.speed),
+                    e => updateStatus("GPS Error: " + e.message, "red"),
                     { enableHighAccuracy: true, maximumAge: 0 }
                 );
             } else alert("GPS not supported");
         }
 
-        function updatePos(lat, lng, hdg, spd) {
+        function updateGPS(lat, lng, hdg, spd) {
             myPos = { lat, lng, heading: hdg || 0 };
+            
             document.getElementById('val-cog').innerText = Math.round(myPos.heading);
             document.getElementById('val-sog').innerText = spd ? (spd * 1.94).toFixed(1) : "0.0";
 
-            if(!boatMarker) {
+            if (!boatMarker) {
                 boatMarker = L.marker([lat, lng], {
                     icon: L.divIcon({ className: 'boat-icon', html: `<div class="shape-boat" style="transform:rotate(0deg);"></div>`, iconSize: [20, 25], iconAnchor: [10, 12] })
                 }).addTo(map);
-                map.setView([lat, lng], 14);
+                map.setView([lat, lng], 15);
             } else {
                 boatMarker.setLatLng([lat, lng]);
                 boatMarker.getElement().innerHTML = `<div class="shape-boat" style="transform:rotate(${myPos.heading}deg);"></div>`;
@@ -217,7 +258,7 @@
             findNearest();
         }
 
-        // --- GEOMETRY ---
+        // --- 3. GEOMETRY (Trapezoid Logic) ---
         const R_NM = 3440.065;
         function toRad(d) { return d * Math.PI / 180; }
         function toDeg(r) { return r * 180 / Math.PI; }
@@ -229,49 +270,68 @@
         }
 
         function renderCourse() {
-            if(!currentCourse.start) return;
+            if(!courseData.start) return;
             courseLayer.clearLayers();
-            const { start: s, wind: w, dist: d } = currentCourse;
+            
+            const s = courseData.start;
+            const w = courseData.wind;
+            const d = courseData.dist;
 
-            // Calc Marks
+            // Geometry
             const m1 = dest(s.lat, s.lng, w, d);
-            const reachAngle = (w - 115 + 360) % 360;
+            const reachAngle = (w - 115 + 360) % 360; 
             const reachLen = d * 0.5;
             const m2 = dest(m1.lat, m1.lng, reachAngle, reachLen);
+            
+            // Gate (Downwind from M2)
             const gateCenter = dest(m2.lat, m2.lng, (w + 180) % 360, d);
             const p3p = dest(gateCenter.lat, gateCenter.lng, (w - 90 + 360)%360, 0.02);
             const p3s = dest(gateCenter.lat, gateCenter.lng, (w + 90 + 360)%360, 0.02);
+            
+            // Inner
             const m4 = dest(gateCenter.lat, gateCenter.lng, w, d * 0.66);
             const m5 = dest(m4.lat, m4.lng, reachAngle, reachLen * 0.85);
 
-            // Create Objects
-            const marks = [
-                {id:"1", p:m1, t:"cyl"}, {id:"2", p:m2, t:"cyl"}, 
-                {id:"3P", p:p3p, t:"cyl"}, {id:"3S", p:p3s, t:"cyl"},
-                {id:"4", p:m4, t:"tri"}, {id:"5", p:m5, t:"tri"},
-                {id:"S", p:s, t:"boat"}
+            // Start/Finish
+            const pin = dest(s.lat, s.lng, (w - 90 + 360)%360, 0.1);
+            const finish = dest(s.lat, s.lng, (w + 90 + 360)%360, 0.1);
+
+            // Objects
+            activeMarks = [
+                {id:"1", p:m1, type:"cyl"}, {id:"2", p:m2, type:"cyl"},
+                {id:"3S", p:p3s, type:"cyl"}, {id:"3P", p:p3p, type:"cyl"},
+                {id:"4", p:m4, type:"tri"}, {id:"5", p:m5, type:"tri"},
+                {id:"Start", p:s, type:"boat"}, {id:"Pin", p:pin, type:"pin"},
+                {id:"Fin", p:finish, type:"flag"}
             ];
 
             // Render
-            marks.forEach(m => {
-                if(m.t === 'boat') return;
-                let h = m.t==='cyl' ? `<div class="shape-cyl"></div>` : `<div class="shape-tri"></div>`;
-                h += `<div class="mark-label">${m.id}</div>`;
-                L.marker([m.p.lat, m.p.lng], { icon: L.divIcon({ html: h, className:'x', iconSize:[30,30], iconAnchor:[15,15] }) }).addTo(courseLayer);
+            activeMarks.forEach(m => {
+                if(m.type === 'boat') return;
+                let cssClass = `shape-${m.type}`;
+                let html = `<div class="${cssClass}"></div><div class="mark-label">${m.id}</div>`;
+                L.marker([m.p.lat, m.p.lng], { 
+                    icon: L.divIcon({ html: html, className:'x', iconSize:[30,30], iconAnchor:[15,15] }) 
+                }).addTo(courseLayer);
             });
 
-            // Auto Zoom (only if we aren't dragging the map manually)
-            const bounds = L.latLngBounds(marks.map(m => [m.p.lat, m.p.lng]));
-            map.fitBounds(bounds, {padding:[50,50]});
+            // Lines
+            const lineOpts = {color:'#555', weight:1, dashArray:'5,5'};
+            L.polyline([[s.lat,s.lng],[m1.lat,m1.lng]], lineOpts).addTo(courseLayer);
+            L.polyline([[m1.lat,m1.lng],[m2.lat,m2.lng],[p3p.lat,p3p.lng]], {color:'#ff0055', weight:2}).addTo(courseLayer);
+            L.polyline([[m4.lat,m4.lng],[m5.lat,m5.lng]], {color:'#ffd700', weight:2}).addTo(courseLayer);
 
-            // Save for distance calc
-            window.activeMarks = marks;
+            // Auto Zoom (First time only to prevent annoyance)
+            if(!isPro && courseData.timestamp > (Date.now() - 5000)) {
+                 const bounds = L.latLngBounds(activeMarks.map(m => [m.p.lat, m.p.lng]));
+                 map.fitBounds(bounds, {padding:[50,50]});
+            }
         }
 
         function findNearest() {
-            if(!window.activeMarks) return;
+            if(activeMarks.length === 0) return;
             let near = null, min = Infinity;
-            window.activeMarks.forEach(m => {
+            activeMarks.forEach(m => {
                 let d = map.distance([myPos.lat, myPos.lng], [m.p.lat, m.p.lng]);
                 if(d < min) { min = d; near = m; }
             });
